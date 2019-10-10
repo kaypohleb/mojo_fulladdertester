@@ -1,0 +1,86 @@
+module mojo_top (
+    input clk,              // 50MHz clock
+    input rst_n,            // reset button (active low)
+    output led [8],         // 8 user controllable LEDs
+    input cclk,             // configuration clock, AVR ready when high
+    output spi_miso,        // AVR SPI MISO
+    input spi_ss,           // AVR SPI Slave Select
+    input spi_mosi,         // AVR SPI MOSI
+    input spi_sck,          // AVR SPI Clock
+    output spi_channel [4], // AVR general purpose pins (used by default to select ADC channel)
+    input avr_tx,           // AVR TX (FPGA RX)
+    output avr_rx,          // AVR RX (FPGA TX)
+    input avr_rx_busy,      // AVR RX buffer full
+    output io_led [3][8],   // LEDs on IO Shield
+    output io_seg [8],      // 7-segment LEDs on IO Shield
+    output io_sel [4],      // Digit select on IO Shield
+    input io_button [5],    // 5 buttons on IO Shield
+    input io_dip [3][8],     // DIP switches on IO Shield
+    output outPin1,
+    output outPin2,
+    output outPin3,
+    input inPinCarry,
+    input inPinSum
+  ) {
+  
+  sig rst;                  // reset signal
+  
+  .clk(clk) {
+    // The reset conditioner is used to synchronize the reset signal to the FPGA
+    // clock. This ensures the entire FPGA comes out of reset at the same time.
+    reset_conditioner reset_cond;
+    .rst(rst){
+    counter caseCount (#SIZE(3), #DIV(27));
+    }
+  }
+  
+  decoder dec(#WIDTH(3));
+  
+  always {
+    reset_cond.in = ~rst_n; // input raw inverted reset signal
+    rst = reset_cond.out;   // conditioned reset
+    
+    led = 8h00;             // turn LEDs off
+    spi_miso = bz;          // not using SPI
+    spi_channel = bzzzz;    // not using flags
+    avr_rx = bz;            // not using serial port
+    
+    io_led = 3x{{8h00}};    // turn LEDs off
+    io_seg = 8hff;          // turn segments off
+    io_sel = 4hf;           // select no digits
+    
+    
+    dec.in = caseCount.value;     //decoding caseCount which is in binary to one-hot to be taken in by io_led
+    io_led[1] = dec.out;          //running timer
+    io_led[2][0] = io_dip[2][0];  //switch 16 as switching between modes; led 16 provides if switch 16 is on
+    
+    
+    if(io_dip[2][0] == 0){    // if switch 16 is off, manual switches of cases
+      io_led[2][7:5] = io_dip[2][7:5];  // led 23 = A; led 22 = B; led 21 = C
+      outPin1 = io_dip[2][7];        //A controlled by switch 21
+      outPin2 = io_dip[2][6];        //B controlled by switch 22
+      outPin3 = io_dip[2][5];        //C controlled by switch 23
+      if (inPinCarry * 3b10 + inPinSum == io_dip[2][7] + io_dip[2][6] + io_dip[2][5]){
+        io_led[0][0] = 1;            // led 0 being lit rep that outputs correspond with inputs
+      } else{
+        io_led[0][0] = 0;            // led 0 being unlit rep that outputs does NOT correspond with inputs
+      }
+    } 
+      
+    else{    // if switch 16 is on, automated cycling of cases
+      io_led[2][7:5] = caseCount.value;  // led 23 = A; led 22 = B; led 21 = C
+      outPin1 = caseCount.value[2];  // A
+      outPin2 = caseCount.value[1];  // B
+      outPin3 = caseCount.value[0];  // C
+      if (inPinCarry *3b10 + inPinSum == caseCount.value[0] + caseCount.value[1] + caseCount.value[2]){
+        io_led[0][0] = 1;            // led 0 being lit rep that outputs correspond with inputs
+      } else{
+        io_led[0][0] = 0;            // led 0 being unlit rep that outputs does NOT correspond with inputs
+      }
+    }
+    
+    io_led[0][6] = inPinCarry;      // led 6 being lit rep carry = 1
+    io_led[0][7] = inPinSum;        // led 7 being lit rep sum = 1
+
+  }
+}
